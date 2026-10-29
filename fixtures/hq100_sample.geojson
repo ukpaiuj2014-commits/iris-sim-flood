@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "name": "HQ100 representative fixture - synthetic, not official data",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {"type":"Feature","properties":{"source_id":"fixture-zone-001","flood_class":"HQ100","authority":"SYNTHETIC_FIXTURE","source_date":"2026-10-01"},"geometry":{"type":"Polygon","coordinates":[[[8.0,52.0],[8.01,52.0],[8.01,52.01],[8.0,52.01],[8.0,52.0]]]}},
+    {"type":"Feature","properties":{"source_id":"fixture-zone-002","flood_class":"HQ100","authority":"SYNTHETIC_FIXTURE","source_date":"2026-10-01"},"geometry":{"type":"Polygon","coordinates":[[[8.02,52.0],[8.03,52.0],[8.03,52.01],[8.02,52.01],[8.02,52.0]]]}},
+    {"type":"Feature","properties":{"source_id":"fixture-zone-003","flood_class":"HQ100","authority":"SYNTHETIC_FIXTURE"},"geometry":{"type":"Point","coordinates":[8.0,52.0]}}
+  ]
+}

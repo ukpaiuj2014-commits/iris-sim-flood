@@ -1,0 +1,16 @@
+{
+  "source_name": "fixture-only-not-official",
+  "source_url": null,
+  "input_count": 3,
+  "accepted_count": 2,
+  "rejected_count": 1,
+  "duplicate_count": 0,
+  "rejection_reasons": {
+    "non_polygon_geometry": 1
+  },
+  "accepted_ids": [
+    "fixture-zone-001",
+    "fixture-zone-002"
+  ],
+  "generated_at_utc": "2026-10-29T05:33:42.504501+00:00"
+}

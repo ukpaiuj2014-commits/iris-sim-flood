@@ -1,0 +1,6 @@
+geopandas==1.1.2
+shapely==2.1.2
+SQLAlchemy==2.0.50
+psycopg[binary]==3.2.9
+python-dotenv==1.1.1
+pytest==8.4.2

@@ -1,0 +1,29 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: iris_staging
+      POSTGRES_USER: iris_staging
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_only_change_me}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iris_staging -d iris_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  ingest:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://iris_staging:${POSTGRES_PASSWORD:-local_only_change_me}@postgis:5432/iris_staging
+      SOURCE_PATH: fixtures/hq100_sample.geojson
+      SOURCE_NAME: fixture-only-not-official
+      SOURCE_CRS: EPSG:4326
+    depends_on:
+      postgis:
+        condition: service_healthy
+    command: ["iris-flood-ingest", "--source", "fixtures/hq100_sample.geojson", "--source-name", "fixture-only-not-official"]
+volumes:
+  staging_pgdata:

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iris-sim-flood"
+version = "0.1.0"
+description = "Reproducible HQ100 flood-zone ingestion into an isolated IRIS staging schema"
+requires-python = ">=3.11"
+dependencies = [
+  "geopandas==1.1.2",
+  "shapely==2.1.2",
+  "sqlalchemy==2.0.50",
+  "psycopg[binary]==3.2.9",
+  "python-dotenv==1.1.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.4.2"]
+
+[project.scripts]
+iris-flood-ingest = "iris_flood.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

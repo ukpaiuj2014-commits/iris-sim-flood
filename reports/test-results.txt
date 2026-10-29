@@ -1,0 +1,8 @@
+.........                                                                [100%]
+============================== warnings summary ===============================
+..\.venv\Lib\site-packages\geopandas\_compat.py:17
+  C:\Users\USER\OneDrive\Desktop\APPLICATIONS\.venv\Lib\site-packages\geopandas\_compat.py:17: Pandas4Warning: The 'future.infer_string' option is deprecated and will be removed in pandas 4.0. Inferring str dtype for string data has been the default since pandas 3.0, and it will no longer be possible to disable it.
+    PANDAS_INFER_STR = PANDAS_GE_23 and pd.options.future.infer_string
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+9 passed, 1 warning in 1.36s
