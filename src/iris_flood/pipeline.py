@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon, mapping, shape
-from shapely.validation import explain_validity
+from shapely.validation import explain_validity, make_valid
 
 LOG = logging.getLogger(__name__)
 POLYGON_TYPES = {"Polygon", "MultiPolygon"}
@@ -20,6 +20,7 @@ POLYGON_TYPES = {"Polygon", "MultiPolygon"}
 @dataclass(frozen=True)
 class NormalizedZone:
     source_id: str
+    source_id_original: str
     flood_class: str
     authority: str
     source_date: str | None
@@ -34,10 +35,13 @@ class NormalizedZone:
 class QualityReport:
     source_name: str
     source_url: str | None
+    authority: str = "UNCONFIRMED"
     input_count: int = 0
     accepted_count: int = 0
     rejected_count: int = 0
     duplicate_count: int = 0
+    repaired_count: int = 0
+    duplicate_source_id_count: int = 0
     rejection_reasons: dict[str, int] | None = None
     accepted_ids: list[str] | None = None
 
@@ -72,23 +76,51 @@ def _first(props: dict[str, Any], candidates: Iterable[str]) -> Any:
     return None
 
 
-def _stable_id(props: dict[str, Any], geom_json: str, authority: str, flood_class: str) -> str:
-    # Prefer source-provided IDs. If none exist, use a deterministic hash of geometry + core attributes.
-    source_id = _first(props, ("source_id", "gml_id", "objectid", "object_id", "fid", "id", "uuid"))
-    if source_id is not None:
-        return str(source_id).strip()
-    seed = json.dumps({"geometry": json.loads(geom_json), "authority": authority,
-                       "flood_class": flood_class}, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
+def _stable_id(
+    props: dict[str, Any],
+    geom_text: str,
+    authority: str,
+    flood_class: str,
+) -> str:
+    """Return a stable feature ID, including for distinct geometry components."""
+    original = _first(
+        props,
+        (
+            "source_id", "apsfr_code", "gml_id", "objectid",
+            "object_id", "fid", "id", "uuid",
+        ),
+    )
+    if original is None:
+        seed = json.dumps(
+            {
+                "geometry": json.loads(geom_text),
+                "authority": authority,
+                "flood_class": flood_class,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return "sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
+
+    original = str(original).strip()
+    # Geometry fingerprint prevents distinct features with one official ID
+    # from colliding, while repeated copies of the same feature remain stable.
+    fingerprint = hashlib.sha256(geom_text.encode("utf-8")).hexdigest()[:16]
+    return original
 
 
 def normalize_features(features: list[dict[str, Any]], *, source_name: str,
                        source_url: str | None = None, source_crs: str = "EPSG:4326",
                        default_authority: str = "UNCONFIRMED", assume_hq100_source: bool = False) -> tuple[list[NormalizedZone], QualityReport]:
     """Normalize GeoJSON-like features; no database side effects occur here."""
-    report = QualityReport(source_name=source_name, source_url=source_url, input_count=len(features))
+    report = QualityReport(
+    source_name=source_name,
+    source_url=source_url,
+    authority=default_authority,
+    input_count=len(features),
+)
     accepted: list[NormalizedZone] = []
-    seen: set[str] = set()
+    seen: dict[str, str] = {}
     for index, feature in enumerate(features):
         try:
             props = feature.get("properties") or {}
@@ -103,8 +135,18 @@ def normalize_features(features: list[dict[str, Any]], *, source_name: str,
             if geom.is_empty:
                 report.reject("empty_geometry"); continue
             if not geom.is_valid:
-                report.reject("invalid_geometry:" + explain_validity(geom).split("[")[0].strip()); continue
-            flood_class = _clean_text(_first(props, ("flood_class", "scenario", "hazard_type", "return_period", "HQ", "klasse")))
+                geom = make_valid(geom)
+                if geom.is_empty:
+                    report.reject("repair_empty_geometry")
+                    continue
+                if geom.geom_type not in POLYGON_TYPES:
+                    report.reject("repair_non_polygon_geometry")
+                    continue
+                if not geom.is_valid:
+                    report.reject("repair_still_invalid")
+                    continue
+                report.repaired_count += 1
+            flood_class = _clean_text(_first(props, ("flood_class", "fl_recur", "scenario", "hazard_type", "return_period", "HQ", "klasse")))
             if flood_class is None:
                 if assume_hq100_source:
                     flood_class = "HQ100"
@@ -125,13 +167,31 @@ def normalize_features(features: list[dict[str, Any]], *, source_name: str,
                 except ValueError:
                     report.reject("malformed_source_date"); continue
             geom_text = json.dumps(mapping(geom), sort_keys=True, separators=(",", ":"))
+            original_id = _clean_text(
+                _first(props, ("source_id", "apsfr_code", "gml_id", "objectid",
+                               "object_id", "fid", "id", "uuid"))
+            )
             sid = _stable_id(props, geom_text, authority, "HQ100")
+            geometry_fingerprint = hashlib.sha256(
+                geom_text.encode("utf-8")
+            ).hexdigest()[:16]
+
+            # Preserve the original ID for unique features. If an ID repeats
+            # with different geometry, retain each component deterministically.
             if sid in seen:
-                report.duplicate_count += 1
-                continue
-            seen.add(sid)
+                previous_fingerprint = seen[sid]
+                if previous_fingerprint == geometry_fingerprint:
+                    report.duplicate_count += 1
+                    continue
+
+                report.duplicate_source_id_count += 1
+                sid = f"{sid}::{geometry_fingerprint}"
+
+            seen[sid] = geometry_fingerprint
             accepted.append(NormalizedZone(
-                source_id=sid, flood_class="HQ100", authority=authority,
+                source_id=sid,
+                source_id_original=original_id or sid,
+                flood_class="HQ100", authority=authority,
                 source_date=source_date, source_name=source_name, source_url=source_url,
                 source_crs=source_crs, geometry=mapping(geom),
                 geometry_hash=hashlib.sha256(geom.wkb).hexdigest(),

@@ -2,56 +2,138 @@
 
 Task ID: `TASK 103 | IRIS-SIM-FLOOD`
 
-A small, reproducible Python workflow that validates HQ100 polygon features and, when explicitly configured, upserts them into the isolated PostGIS staging table `iris_staging.flood_zones_hq100`. It does not write to `iris_core` or any production schema.
+A reproducible Python workflow for validating HQ100 flood-zone polygons and loading them into the isolated PostGIS staging table `iris_staging.flood_zones_hq100`. The loader validates geometries, normalizes source fields, records provenance, handles duplicate source identifiers, and uses repeatable upserts.
 
-## Source decision and provenance
+The workflow is designed for staging only. It does not write to `iris_core` or a production schema.
 
-**Chosen primary candidate: BfG national INSPIRE Natural Risk Zones service, coordinated with LAWA, reporting cycle 2022–2027.** This is the most defensible default because the assignment names LAWA but does not name a federal state. The official BfG metadata identifies the national reporting dataset and the WFS download service, and says the data are supplied by the German states and harmonised nationally. Metadata: [BfG dataset record](https://geoportal.bafg.de/csw-client/recordbyid?id=bfg&lang=de&recordid=6b2ebfe3-d47f-464d-93ff-b848ab55de05); [WFS GetCapabilities](https://geoportal.bafg.de/arcgis1/rest/services/INSPIRE/NZ/MapServer/exts/InspireFeatureDownload/service?REQUEST=GetCapabilities&SERVICE=WFS&VERSION=2.0.0); [download service feed](https://geoportal.bafg.de/inspire/download/NZ/servicefeed.xml).
+## Source selection and provenance
 
-**Important limitation:** the BfG metadata explicitly warns that the national harmonised dataset may not be as current or detailed as the relevant state authority's data, and that complete national coverage is not guaranteed. The task does not specify a state or a live endpoint, so this is a reasoned source choice—not proof that IRIS expects this exact service. If the reviewer later confirms a state, prefer its official current HQ100 service and document the switch. For example, [Lower Saxony NLWKN HQ100 metadata](https://umweltportal.niedersachsen.de/suche/detail?id=numis-metadaten-bf19e392-8500-44b7-976e-17a8c11fc445) identifies a public dataset for the 2016–2021 cycle, but it is older and therefore not selected as the default.
+### National source candidate: BfG
 
-The included GeoJSON is **synthetic demonstration data only**, not downloaded LAWA/BfG/NLWKN data. The live WFS has not been downloaded or validated in this environment. Do not report live-source feature counts, coverage, or successful official ingestion. For BfG data, preserve the requested attribution: “WasserBLIcK/BfG und Zuständige Behörden der Länder, [data retrieval date]”. The national dataset is available under the German Geodata Use Ordinance conditions described in its metadata.
+The Federal Institute of Hydrology (BfG) national INSPIRE Natural Risk Zones service, coordinated with LAWA, is a candidate source for the assignment because the task does not specify a German federal state.
 
-## Local validation
+References:
 
-Python 3.11+ is required.
+- [BfG dataset record](https://geoportal.bafg.de/csw-client/recordbyid?id=bfg&lang=de&recordid=6b2ebfe3-d47f-464d-93ff-b848ab55de05)
+- [WFS GetCapabilities](https://geoportal.bafg.de/arcgis1/rest/services/INSPIRE/NZ/MapServer/exts/InspireFeatureDownload/service?REQUEST=GetCapabilities&SERVICE=WFS&VERSION=2.0.0)
+- [BfG download service feed](https://geoportal.bafg.de/inspire/download/NZ/servicefeed.xml)
+
+**Limitation:** this repository has not completed a live download and validation of the national BfG feed. The BfG source is a documented candidate, not evidence of successful ingestion of current nationwide data. National harmonization and coverage limitations described by the source metadata should be considered before operational use.
+
+### Real-data validation: NLWKN Lower Saxony
+
+A separate validation run used the official Lower Saxony flood-risk dataset:
+
+- Dataset: `Hochwasserrisikogebiete HQ100 2. Zyklus`
+- Provider: Niedersächsischer Landesbetrieb fuer Wasserwirtschaft, Kuesten- und Naturschutz (NLWKN)
+- Reporting cycle: 2016-2021
+- Download: [Official NLWKN HQ100 dataset ZIP](https://www.umweltkarten.niedersachsen.de/Download_OE/HWSchutz/HWRMRL_Z2_Risikogebiete_HQ100.zip)
+- Metadata: [Lower Saxony metadata record](https://umweltportal.niedersachsen.de/suche/detail?id=numis-metadaten-bf19e392-8500-44b7-976e-17a8c11fc445)
+- Source CRS: EPSG:4647 (ETRS89 / UTM zone 32N)
+- Storage CRS: EPSG:4326
+
+This is historical, regional data. It is not a current national flood-risk dataset and must not be presented as current flood-risk advice.
+
+### Licence and attribution
+
+The supplied NLWKN licence document describes the `Datenlizenz Deutschland - Namensnennung - Version 2.0` (DL-DE-BY-2.0).
+
+- Licence: https://www.govdata.de/dl-de/by-2-0
+- Provider information: https://www.nlwkn.niedersachsen.de/opendata
+- Attribution: `2026 NLWKN` and `www.nlwkn.niedersachsen.de/opendata`
+
+Retain the licence document and attribution when redistributing the dataset. Review the source licence and disclaimer before any other use.
+
+The included `hq100_sample.geojson` is synthetic fixture data for automated tests. It is not official flood-zone data.
+
+## Real-data validation results
+
+The NLWKN source was loaded for validation and ingested into the isolated PostGIS staging database.
+
+| Check | Result |
+|---|---:|
+| Input features | 45 |
+| Accepted features | 45 |
+| Rejected features | 0 |
+| Geometries repaired | 13 |
+| Repeated original source IDs detected | 1 |
+| Final staging rows after repeat ingestion | 45 |
+| Distinct staging IDs | 45 |
+| Valid geometries in EPSG:4326 with flood class HQ100 | 45 |
+
+One original source identifier, `DENI_RG_594_TEL_IES`, occurred on two different valid polygon components. The ingestion logic retained both components and assigned a deterministic geometry-fingerprint suffix to the second ID. They were not discarded as identical duplicate geometries.
+
+The ingestion was run twice. After the second run, a read-only PostGIS query confirmed 45 total rows, 45 distinct source IDs, and 45 rows with valid geometries, SRID 4326, and flood class HQ100.
+
+The machine-readable validation report is available at `reports/niedersachsen_hq100_quality.json`.
+
+These results demonstrate successful ingestion of this specific regional dataset into the local staging database. They do not establish that the BfG national feed was ingested or that the data represent current flood conditions.
+
+## Requirements
+
+- Python 3.11 or newer
+- Docker Desktop with Docker Compose for the PostGIS integration run
+
+Install and run the tests:
 
 ```bash
 python -m venv .venv
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
-python -m pip install -e '.[test]'
-pytest -q
-iris-flood-ingest --validate-only
+# Windows CMD:
+.venv\Scripts\activate
+python -m pip install -e ".[test]"
+python -m pytest -q
 ```
 
-The CLI accepts a local vector file or a GeoPandas-readable URL (GeoJSON, GeoPackage, Shapefile ZIP, GML, etc.). It requires a declared CRS and reprojects the geometries to EPSG:4326 before validation. The CLI writes a machine-readable report to `reports/quality-report.json`. `--validate-only` never opens a database connection.
+The CLI accepts a local vector file or a GeoPandas-readable source. It requires a declared CRS and reprojects geometries to EPSG:4326 before storage. The `--validate-only` option validates the input and writes a machine-readable report without connecting to the database.
 
-## Isolated PostGIS staging run
+Example validation command for the NLWKN shapefile:
 
 ```bash
-cp .env.example .env
-# Review DATABASE_URL and use only a disposable/staging database.
-docker compose up --build
+python -m iris_flood.cli --source "fixtures/niedersachsen_hq100/Risikogebiete_HQ100_Z2.shp" --source-name "NLWKN Niedersachsen HQ100 (historical 2016-2021)" --source-url "https://www.umweltkarten.niedersachsen.de/Download_OE/HWSchutz/HWRMRL_Z2_Risikogebiete_HQ100.zip" --validate-only --report "reports/niedersachsen_hq100_quality.json"
 ```
 
-The Compose database is bound to localhost port `55432`, uses a dedicated `iris_staging` database/user, and is not connected to any external system. Change the local password before use. Never set a production URL. The writer checks that the database is named `iris_staging` and the host is a local/PostGIS Compose host; it writes only to the hard-coded `iris_staging.flood_zones_hq100` table. The upsert key is `source_id`; repeat runs update existing IDs instead of creating duplicates.
+## Isolated PostGIS staging
 
-## Field mapping
+Start the database:
 
-| Destination | Source mapping / rule |
+```bash
+docker compose up -d postgis
+```
+
+The local Compose configuration binds PostGIS to `127.0.0.1:55433` to avoid conflicting with another local project. It uses a dedicated `iris_staging` database and user. The local development password is not suitable for deployment; configure secrets appropriately for any non-local environment.
+
+Run the NLWKN ingestion:
+
+```bash
+docker compose run --rm ingest iris-flood-ingest --source "fixtures/niedersachsen_hq100/Risikogebiete_HQ100_Z2.shp" --source-name "NLWKN Niedersachsen HQ100 (historical 2016-2021)" --source-url "https://www.umweltkarten.niedersachsen.de/Download_OE/HWSchutz/HWRMRL_Z2_Risikogebiete_HQ100.zip" --report "reports/niedersachsen_hq100_quality.json"
+```
+
+Verify the staging rows:
+
+```bash
+docker compose exec postgis psql -U iris_staging -d iris_staging -c "SELECT COUNT(*) AS total_rows, COUNT(DISTINCT source_id) AS distinct_ids, COUNT(*) FILTER (WHERE ST_IsValid(geom) AND ST_SRID(geom)=4326 AND flood_class='HQ100') AS valid_hq100_rows FROM iris_staging.flood_zones_hq100;"
+```
+
+The expected result for the validated NLWKN dataset is 45 rows, 45 distinct IDs, and 45 valid HQ100 geometries in EPSG:4326.
+
+## Field mapping and validation
+
+| Destination field | Mapping or rule |
 |---|---|
-| `source_id` | First available source ID (`source_id`, `gml_id`, `objectid`, `fid`, `id`, etc.); otherwise deterministic SHA-256 over geometry and core attributes |
-| `flood_class` | Accepted only when source value indicates HQ100/100-year/medium-probability; normalized to `HQ100` |
-| `authority` | `authority`, `publisher`, `agency`, or `source_authority`; otherwise `UNCONFIRMED` |
-| `source_date` | First available source date field, parsed as ISO date; malformed dates are rejected |
-| `source_name`, `source_url` | Run configuration for provenance |
-| `source_crs` | Detected input CRS is recorded; geometries are reprojected to EPSG:4326 before storage |
-| `geometry_hash` | SHA-256 of geometry WKB for change/audit comparisons |
-| `geom` | Valid polygon/multipolygon stored as PostGIS MultiPolygon SRID 4326 |
+| `source_id` | Source identifier when available; duplicate identifiers with different geometries are disambiguated using a geometry fingerprint |
+| `source_id_original` | Original identifier from the source |
+| `flood_class` | Normalized to `HQ100` when the source value qualifies |
+| `authority` | Source authority field when available; otherwise the configured fallback |
+| `source_date` | Parsed source date when available |
+| `source_name`, `source_url` | Run configuration used for provenance |
+| `source_crs` | CRS detected from the input vector source |
+| `geometry_hash` | Geometry fingerprint for change and audit comparisons |
+| `geom` | Valid polygon or multipolygon stored as PostGIS MultiPolygon with SRID 4326 |
 
-## Acceptance evidence and limitations
+Invalid polygon geometries are repaired with Shapely where possible. Empty, non-polygonal, or still-invalid geometries are rejected. The loader uses an upsert keyed by `source_id` so repeated runs do not add new rows for the same IDs.
 
-Automated tests cover invalid geometry type, duplicate source IDs, deterministic fallback IDs, non-HQ100 rejection, and parcel/polygon intersection. These are fixture-based checks, not proof that a live official feed has been downloaded. See `reports/QUALITY_REPORT.md`.
+## Automated tests and limitations
 
-Before representing the ingestion as complete against a real authority, verify the actual target state, source endpoint and licence; confirm source CRS and reproject to EPSG:4326 where needed; run a small live sample; compare feature counts/extents/timestamps to source metadata; and record the query/run evidence. The tool is for preliminary screening only, not certified flood engineering advice.
+Automated tests cover geometry validation, duplicate source identifiers, deterministic fallback identifiers, rejection of non-HQ100 features, and polygon intersection. Run the test suite with `python -m pytest -q`.
+
+This workflow is a staging ingestion exercise, not a certified flood-risk assessment. Before operational use, verify the target jurisdiction, current source endpoint, licensing, feature coverage, source dates, and expected CRS. Compare downloaded feature counts and geographic extents with the source metadata. Historical regional data must not be interpreted as a current national flood-risk map.

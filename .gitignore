@@ -1,3 +1,4 @@
+
 .env
 .venv/
 __pycache__/
@@ -6,7 +7,8 @@ __pycache__/
 .coverage
 .DS_Store
 *.egg-info/
-.venv/
-.env
-__pycache__/
-.pytest_cache/
+*.bak
+# Downloaded NLWKN source data (download separately; see README)
+fixtures/niedersachsen_hq100.zip
+fixtures/niedersachsen_hq100/
+scripts/

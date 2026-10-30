@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: iris_staging
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_only_change_me}
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:55433:5432"
     volumes:
       - staging_pgdata:/var/lib/postgresql/data
     healthcheck:
